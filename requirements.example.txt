@@ -1,0 +1,3 @@
+# Replace YOUR_ORG and COMMIT with your GitHub organization and full commit SHA.
+broditech-odoo-migrations @ git+https://github.com/YOUR_ORG/broditech-odoo-migrations.git@COMMIT
+# odoo_upgrade is installed automatically as a package dependency.
