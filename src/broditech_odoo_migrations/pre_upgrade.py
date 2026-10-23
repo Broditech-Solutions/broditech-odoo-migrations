@@ -29,4 +29,5 @@ def migrate(cr, version):
         mod347.migrate(cr, version)
     if "queue_job" in installed:
         queue_job.migrate(cr, version)
+    _logger.info("Broditech Odoo 19 pre-upgrade migrations completed")
     # Odoo owns the transaction. Never commit or create a registry here.

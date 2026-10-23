@@ -51,68 +51,104 @@ Use a public migration-only repository if appropriate, or configure access
 through your organization's supported mechanism. Do not put tokens in a URL
 committed to `requirements.txt`.
 
-## Odoo.sh: discovery and execution are separate
+## Automatic execution on Odoo.sh (version 0.2.0 onwards)
 
-Installing this package registers external migration files under the
-`odoo.upgrade` namespace. It neither connects to a database during installation
-nor patches the Odoo loader.
+Commit the pinned requirement to the Odoo 19 branch in Odoo.sh's upgrade
+"update on commit" workflow. The dependency installation and subsequent Python
+startup register the migration before Odoo loads its module graph. No addon
+needs to import this library and no staging-shell command is required for the
+intended workflow. The root requirements commit must point to version 0.2.0 or
+later; the original 0.1.0 commit did not include startup registration.
 
-The Modelo 347 and queue scripts run automatically when the corresponding
-installed addon is upgraded through a qualifying version change. For these
-`19.0.1.0.0` scripts, Odoo requires:
+Execution order:
+
+1. Odoo.sh installs the requirement in Python's site-packages.
+2. On the next interpreter startup, Python processes the installed
+   `broditech_odoo_migrations_autoload.pth` file.
+3. Our startup hook checks that `ODOO_VERSION` identifies Odoo 19, then prepends
+   the packaged entry point to `ODOO_PRE_UPGRADE_SCRIPTS`. Existing script paths
+   are retained and repeated registration does not duplicate paths.
+4. Odoo 19 reads that environment setting during configuration parsing.
+5. When Odoo.sh requests module updates, Odoo executes the entry point before
+   loading `base`: commission renames first, then both JSONB conversions.
+6. The normal addon upgrade proceeds. Later duplicate calls safely skip work
+   that is already complete.
+
+This is a project-specific Python startup integration using Odoo's supported
+environment setting, not a documented Odoo.sh build-hook API. The hook sets
+configuration only: it does not import Odoo, open database connections, or change
+the database at pip installation or Python startup. Odoo owns migration execution
+and the transaction. It does not depend on a change to `base`'s manifest version.
+
+The relevant mechanisms are documented in:
+
+- Python site-package startup hooks:
+  https://docs.python.org/3.12/library/site.html
+- Odoo 19 environment option loading and `pre_upgrade_scripts`:
+  https://github.com/odoo/odoo/blob/19.0/odoo/tools/config.py
+- Execution before loading base:
+  https://github.com/odoo/odoo/blob/19.0/odoo/modules/loading.py
+- Odoo.sh's `ODOO_VERSION` environment variable:
+  https://www.odoo.sh/faq
+
+### Verify the staging build
+
+The package's startup behavior is tested in a fresh Python interpreter after
+wheel installation. Actual Odoo.sh execution must still be verified on staging.
+In the build's update/upgrade log, look for these messages **before the affected
+addons load**:
 
 ```text
-installed module version < 19.0.1.0.0 <= target module manifest version
+extra upgrade scripts: [.../broditech_odoo_migrations/pre_upgrade.py]
+Running Broditech Odoo 19 migrations for installed modules
+Broditech Odoo 19 pre-upgrade migrations completed
 ```
 
-The package also includes an early `base/0.0.0` hook. **This hook runs only if
-`base` is selected for upgrade and its installed version is lower than its
-manifest version.** A normal `-u all` does not bypass this version comparison.
-After Odoo's upgrade service has upgraded core modules, base may already be at
-the target version. Consequently, a requirements entry alone does not guarantee
-that commission renames happen before the addon graph is built.
+The first is logged by Odoo's CLI; the other two are logged by our entry point.
+Treat missing registration or a missing completion message as a failed
+integration; do not assume the version-gated fallback has performed the work.
 
-The loader's rules are visible in Odoo's source:
-https://github.com/odoo/odoo/blob/19.0/odoo/modules/migration.py
+Python must process normal site-packages startup hooks. Launchers that disable
+`site` processing, disable the user site where the dependency was installed, or
+only add the package directory to `PYTHONPATH` will not process the `.pth` file.
+Also, an explicit `--pre-upgrade-scripts` CLI option takes precedence over the
+environment value; if the platform supplies that option, it must include our
+entry point. These launcher details cannot be verified from the local workspace.
 
-For the same guaranteed ordering used locally, invoke the explicit entry point
-in an Odoo.sh staging shell, against the restored test database, before normal
-module loading. With the regular Odoo process stopped using the platform's
-supported maintenance procedure, run:
+The migration runs on module-update startups, not every ordinary server restart.
+A rebuild that does not request a module update does not execute migrations.
+The ordinary `/web/database/manager` restore likewise does not trigger them.
+Use Odoo.sh's upgrade workflow with a core-upgraded database; do not restore a
+source Odoo 17 database directly into Odoo 19.
+
+## Other environments and fallback hooks
+
+External scripts remain available under the `odoo.upgrade` namespace for normal
+version-gated discovery. The `base/0.0.0` fallback is subject to base's installed
+version being lower than its manifest version. These hooks are not the primary
+automatic registration mechanism on Odoo.sh.
+
+Outside Odoo.sh, the startup hook leaves the environment unchanged unless
+`ODOO_VERSION=19.0` is set. To invoke the explicit entry point locally instead:
 
 ```sh
 PRE_UPGRADE_SCRIPT="$(python3 -m broditech_odoo_migrations --pre-upgrade-script)"
-odoo-bin -d "$PGDATABASE" \
-  --pre-upgrade-scripts="$PRE_UPGRADE_SCRIPT" \
+odoo -d DATABASE --pre-upgrade-scripts="$PRE_UPGRADE_SCRIPT" \
   -u all --stop-after-init
 ```
-
-`PGDATABASE` must identify the restored staging database; replace it with an
-explicit database name if it is not set. Use `odoo` instead of `odoo-bin` on
-installations exposing that executable. The explicit entry point runs commission
-renames first, then both field conversions, without module-version gating.
-Odoo documents this early mechanism in its loader:
-https://github.com/odoo/odoo/blob/19.0/odoo/modules/loading.py
-
-For Odoo.sh's automatic restore/update pipeline, the platform must invoke this
-entry point early, or the base hook must be eligible. If neither is available,
-arrange the early step with Odoo.sh support before the production upgrade.
-A staging-shell modification does not carry over automatically to a fresh
-production restore. Installing this dependency does not change that constraint.
-
-The ordinary `/web/database/manager` restore does not trigger module migrations.
-Do not restore a source Odoo 17 database straight into Odoo 19: first obtain the
-core-upgraded dump through the normal Odoo upgrade service.
 
 ## Local verification
 
 ```sh
 PYTHONPATH=src python3 -m unittest discover -s tests -v
 python3 -m pip wheel --no-deps --no-build-isolation . -w dist
+python3 tools/verify_wheel.py dist/broditech_odoo_migrations-0.2.0-py3-none-any.whl
 ```
 
 Tests cover conversion guards, installed-module filtering, commission merge
-preflight, namespace discovery, and the packaged entry points. The database
+preflight, namespace discovery, and startup registration. The wheel verifier
+installs the built wheel in a temporary virtualenv and starts fresh interpreters
+to check the `.pth` behavior without manually importing the package. The database
 tests use cursor doubles and SQLite for metadata queries; they do not replace
 an Odoo 19/PostgreSQL staging upgrade.
 
