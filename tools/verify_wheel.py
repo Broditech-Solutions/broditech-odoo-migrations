@@ -20,6 +20,7 @@ def main():
     with zipfile.ZipFile(wheel) as archive:
         names = set(archive.namelist())
         assert hook in names, "Startup hook is missing from wheel"
+        assert "broditech_odoo_migrations/cleanup.py" in names, "Cleanup is missing from wheel"
         assert "odoo/__init__.py" not in names
         assert "odoo/upgrade/__init__.py" not in names
         assert len([p for p in names if p.startswith("odoo/upgrade/") and "/pre-" in p]) == 3
