@@ -35,6 +35,21 @@ and any candidate still active after cleanup aborts the migration. Repeat runs
 skip modules already uninstalled. The old addon migration must be removed from
 the deployed addon repository as well; this repository contains its replacement.
 
+## Studio customizations (0.4.1 onwards)
+
+Cleanup preserves `studio_customization` when it is active in the database,
+along with `web_studio` and its transitive dependencies. Studio's imported
+module does not need a filesystem manifest: its database dependencies are
+retained when there is no exported manifest. An exported module uses its
+current manifest dependencies. Other retained addons still require valid
+manifests, including the `web_studio` runtime itself.
+
+An absent or already uninstalled Studio customization module is not installed
+by this migration. A retained module marked for removal still stops cleanup.
+Studio views referring to fields from retired addons may need adjustment.
+If a previous cleanup removed Studio customizations, use a fresh upgraded
+restore; this exception cannot recover deleted customizations.
+
 ## Avant sync job transfer (0.4.0 onwards)
 
 Before cleanup, the entry point transfers all jobs for
@@ -108,8 +123,8 @@ Commit the pinned requirement to the Odoo 19 branch in Odoo.sh's upgrade
 "update on commit" workflow. The dependency installation and subsequent Python
 startup register the migration before Odoo loads its module graph. No addon
 needs to import this library and no staging-shell command is required for the
-intended workflow. The root requirements commit must point to version 0.4.0 or
-later to include Avant job preservation; the original 0.1.0 commit did not include startup registration.
+intended workflow. The root requirements commit must point to version 0.4.1 or
+later to include Studio preservation; the original 0.1.0 commit did not include startup registration.
 
 Execution order:
 
@@ -197,7 +212,7 @@ odoo -d DATABASE --pre-upgrade-scripts="$PRE_UPGRADE_SCRIPT" \
 ```sh
 PYTHONPATH=src python3 -m unittest discover -s tests -v
 python3 -m pip wheel --no-deps --no-build-isolation . -w dist
-python3 tools/verify_wheel.py dist/broditech_odoo_migrations-0.4.0-py3-none-any.whl
+python3 tools/verify_wheel.py dist/broditech_odoo_migrations-0.4.1-py3-none-any.whl
 ```
 
 Tests cover conversion guards, installed-module filtering, commission merge

@@ -15,7 +15,7 @@ from odoo.upgrade.util import helpers
 
 
 _logger = logging.getLogger(__name__)
-KEEP_MODULES = {"am_integration", "am_project", "disable_vat_check", "studio_customization"}
+KEEP_MODULES = {"am_integration", "am_project", "disable_vat_check"}
 ACTIVE_STATES = ("installed", "to upgrade", "to install", "to remove")
 
 
@@ -39,19 +39,36 @@ def cleanup_plan(cr):
         addon.name for root in roots for addon in root.iterdir()
         if (addon / "__manifest__.py").is_file()
     }
+    cr.execute("""
+        SELECT m.name, d.name
+          FROM ir_module_module_dependency d
+          JOIN ir_module_module m ON m.id = d.module_id
+    """)
+    dependencies = {}
+    for name, dependency in cr.fetchall():
+        dependencies.setdefault(name, set()).add(dependency)
     # Use current manifests for retained addons: the database may still contain
     # obsolete dependencies from before the major upgrade.
     keep = set()
-    pending = list(KEEP_MODULES | (standard & states.keys()))
+    studio = {"studio_customization"} & states.keys()
+    pending = list(KEEP_MODULES | (standard & states.keys()) | studio)
     while pending:
         name = pending.pop()
         if name in keep:
             continue
         manifest = get_manifest(name)
-        if not manifest:
+        if name in studio:
+            # Studio creates an imported database module with no addon folder.
+            # Use its database dependencies only when no exported manifest is
+            # available, and always retain the Studio runtime itself.
+            required = set(manifest.get("depends", ()) if manifest else dependencies.get(name, ()))
+            required.add("web_studio")
+        elif not manifest:
             raise RuntimeError("Cannot locate retained addon %s" % name)
+        else:
+            required = manifest.get("depends", ())
         keep.add(name)
-        pending.extend(manifest.get("depends", ()))
+        pending.extend(required)
     if "am_update" in keep:
         raise RuntimeError("Retained addons must not depend on retired addon am_update")
     removing = keep & {name for name, state in states.items() if state == "to remove"}
@@ -61,14 +78,6 @@ def cleanup_plan(cr):
     # Include pending installations: they must not reach the Odoo 19 graph.
     # The SQL uninstall helper also cleans up any partially installed data.
 
-    cr.execute("""
-        SELECT m.name, d.name
-          FROM ir_module_module_dependency d
-          JOIN ir_module_module m ON m.id = d.module_id
-    """)
-    dependencies = {}
-    for name, dependency in cr.fetchall():
-        dependencies.setdefault(name, set()).add(dependency)
     # Remove dependents before their dependencies, even without addon sources.
     order = []
     remaining = set(candidates)

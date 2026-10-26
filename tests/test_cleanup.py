@@ -110,6 +110,47 @@ class CleanupTests(unittest.TestCase):
             self.script["migrate"](CleanupCursor({"am_update": "installed"}), None)
         self.util.uninstall_module.assert_not_called()
 
+    def test_preserves_database_only_studio_and_its_dependencies(self):
+        self.manifests["web_studio"] = {"depends": ["web", "studio_support"]}
+        self.manifests["studio_support"] = {"depends": ["base"]}
+        self.manifests["custom_studio_dependency"] = {"depends": ["base"]}
+        cr = CleanupCursor(
+            {"studio_customization": "installed", "web_studio": "installed",
+             "studio_support": "installed", "custom_studio_dependency": "installed",
+             "am_update": "to upgrade"},
+            [("studio_customization", "custom_studio_dependency")],
+        )
+        keep, order = self.script["cleanup_plan"](cr)
+        self.assertTrue({"studio_customization", "web_studio", "studio_support",
+                         "custom_studio_dependency"}.issubset(keep))
+        self.assertEqual(order, ["am_update"])
+
+    def test_absent_or_uninstalled_studio_does_not_require_its_runtime(self):
+        for states in ({}, {"studio_customization": "uninstalled"}):
+            keep, order = self.script["cleanup_plan"](CleanupCursor(states))
+            self.assertNotIn("studio_customization", keep)
+            self.assertNotIn("web_studio", keep)
+            self.assertEqual(order, [])
+
+    def test_exported_studio_uses_current_manifest_dependencies(self):
+        self.manifests["studio_customization"] = {"depends": ["project"]}
+        self.manifests["web_studio"] = {"depends": ["web"]}
+        cr = CleanupCursor(
+            {"studio_customization": "installed", "stale_oca": "installed"},
+            [("studio_customization", "stale_oca")],
+        )
+        keep, order = self.script["cleanup_plan"](cr)
+        self.assertIn("web_studio", keep)
+        self.assertIn("project", keep)
+        self.assertEqual(order, ["stale_oca"])
+
+    def test_studio_exception_does_not_hide_missing_runtime_or_removal(self):
+        with self.assertRaisesRegex(RuntimeError, "Cannot locate retained addon web_studio"):
+            self.script["cleanup_plan"](CleanupCursor({"studio_customization": "installed"}))
+        self.manifests["web_studio"] = {"depends": ["web"]}
+        with self.assertRaisesRegex(RuntimeError, "Required addons marked for removal.*studio_customization"):
+            self.script["cleanup_plan"](CleanupCursor({"studio_customization": "to remove"}))
+
     def test_rejects_cycles_missing_retained_sources_and_required_removals(self):
         cr = CleanupCursor({"a": "installed", "b": "to upgrade"}, [("a", "b"), ("b", "a")])
         with self.assertRaisesRegex(RuntimeError, "Cyclic"):
