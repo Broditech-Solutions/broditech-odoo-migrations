@@ -1,5 +1,5 @@
 # License AGPL-3.0-or-later
-"""Rename modules, uninstall retired addons, then convert retained JSONB fields."""
+"""Preserve Avant jobs, uninstall retired addons, and migrate retained fields."""
 
 import logging
 
@@ -10,7 +10,7 @@ _logger = logging.getLogger(__name__)
 def migrate(cr, version):
     from odoo.release import version_info
 
-    from broditech_odoo_migrations import cleanup, commission, mod347, queue_job
+    from broditech_odoo_migrations import avant_jobs, cleanup, commission, mod347, queue_job
 
     if version_info[0] != 19:
         raise RuntimeError("These project migrations must run under Odoo 19")
@@ -18,6 +18,7 @@ def migrate(cr, version):
     _logger.info("Running Broditech Odoo 19 migrations for installed modules")
     # Module operations must precede the loading of base and the addon graph.
     commission.migrate(cr, version)
+    avant_jobs.migrate(cr, version)
     cleanup.migrate(cr, version)
     # Cleanup may have removed the modules that previously needed conversion.
     cr.execute(

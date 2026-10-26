@@ -176,6 +176,16 @@ class CommissionTests(unittest.TestCase):
 
 
 class EntryPointTests(unittest.TestCase):
+    def test_failed_job_transfer_prevents_destructive_cleanup(self):
+        release = types.ModuleType("odoo.release")
+        release.version_info = (19, 0)
+        mocks = {name: Mock() for name in ("commission", "avant_jobs", "cleanup", "mod347", "queue_job")}
+        mocks["avant_jobs"].migrate.side_effect = RuntimeError("Cannot migrate Avant queue job")
+        with patch.dict(sys.modules, {"odoo.release": release}), patch.multiple(package, create=True, **mocks):
+            with self.assertRaisesRegex(RuntimeError, "Cannot migrate Avant"):
+                pre_upgrade.migrate(Mock(), None)
+        mocks["cleanup"].migrate.assert_not_called()
+
     def test_conversions_use_module_states_after_cleanup(self):
         release = types.ModuleType("odoo.release")
         release.version_info = (19, 0)
@@ -189,12 +199,13 @@ class EntryPointTests(unittest.TestCase):
 
         mocks = {
             "commission": types.SimpleNamespace(migrate=lambda *args: calls.append("commission")),
+            "avant_jobs": types.SimpleNamespace(migrate=lambda *args: calls.append("avant_jobs")),
             "cleanup": types.SimpleNamespace(migrate=cleanup),
             "mod347": Mock(), "queue_job": Mock(),
         }
         with patch.dict(sys.modules, {"odoo.release": release}), patch.multiple(package, create=True, **mocks):
             pre_upgrade.migrate(cr, None)
-        self.assertEqual(calls, ["commission", "cleanup"])
+        self.assertEqual(calls, ["commission", "avant_jobs", "cleanup"])
         mocks["mod347"].migrate.assert_not_called()
         mocks["queue_job"].migrate.assert_not_called()
 
@@ -214,13 +225,13 @@ class EntryPointTests(unittest.TestCase):
             calls = []
             mocks = {
                 name: types.SimpleNamespace(migrate=lambda cr, version, name=name: calls.append(name))
-                for name in ("commission", "cleanup", "mod347", "queue_job")
+                for name in ("commission", "avant_jobs", "cleanup", "mod347", "queue_job")
             }
             cr = Mock()
             cr.fetchall.return_value = installed
             with patch.dict(sys.modules, {"odoo.release": release}), patch.multiple(package, create=True, **mocks):
                 pre_upgrade.migrate(cr, "19.0.1.0.0")
-            expected = ["commission", "cleanup"]
+            expected = ["commission", "avant_jobs", "cleanup"]
             names = {row[0] for row in installed}
             if "l10n_es_aeat_mod347" in names:
                 expected.append("mod347")

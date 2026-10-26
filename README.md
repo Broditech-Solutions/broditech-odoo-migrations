@@ -10,6 +10,7 @@ It does not contain database dumps, filestores, credentials, or OCA addon code.
 | --- | --- |
 | Modelo 347 | Convert `res_partner.not_in_mod347` from Boolean to JSONB, preserving its value for every existing company. |
 | Queue jobs | Convert the five serialized queue payload columns from JSON text to JSONB. |
+| Avant sync queue | Transfer partner/project sync jobs and history to `am.sync.job` before removing `queue_job`. |
 | Retired addons | Uninstall non-standard addons, including `am_update`, before loading the addon graph. Keep standard addons, `am_integration`, `am_project`, `disable_vat_check`, and their current dependencies. |
 | Commission module names | Rename legacy OCA modules to their `_oca` names and handle existing target entries after checking XML ID conflicts. |
 
@@ -33,6 +34,43 @@ retired dependencies stops the cleanup. The complete removal plan is logged,
 and any candidate still active after cleanup aborts the migration. Repeat runs
 skip modules already uninstalled. The old addon migration must be removed from
 the deployed addon repository as well; this repository contains its replacement.
+
+## Avant sync job transfer (0.4.0 onwards)
+
+Before cleanup, the entry point transfers all jobs for
+`res.partner._job_sync_partner_to_am` and
+`project.project._job_sync_project_to_am` into `am_sync_job`. It creates the
+new model's stored columns before `am_integration` initializes its schema.
+The source queue can contain JSON text or JSONB payloads. No retired addon
+imports, sync method calls, HTTP requests, or manual commits are used.
+
+| Legacy state | Destination state |
+| --- | --- |
+| `pending`, `enqueued` | `pending` |
+| `done` | `done` |
+| `failed`, `cancelled`, `started`, `wait_dependencies` | `failed` |
+
+The destination model has only pending/done/failed states. Interrupted jobs
+are kept failed for remote-result reconciliation; cancelled/completed work is
+never automatically replayed. Pending jobs with an ETA or graph dependencies
+also require review and are kept failed because the replacement runner cannot
+honor those scheduling constraints. The original state, UUID, dates, error
+information, retries, and other source metadata are retained in the job details.
+Record ID, user, company, description, and creation/update dates are preserved;
+missing company values fall back to the original user's main company.
+
+UUID-based XML IDs owned by retained `am_integration` prevent duplicate imports.
+Malformed recordsets, arguments unsupported by the replacement, missing owners,
+and unknown states abort the migration before destructive cleanup. Only the
+known singleton, argument-free calls are supported. Unrelated queue jobs are
+not transferred and remain subject to the retired-addon cleanup policy.
+
+The new cron processes pending jobs after the addon upgrade (normally every
+five minutes); historical and failed jobs remain available for inspection.
+Run against a fresh core-upgraded restore while the legacy `queue_job` table
+still exists. Jobs already deleted by an earlier cleanup cannot be recovered
+from that cleaned database. Look for `Transferred ... Avant queue jobs to
+am.sync.job` before the cleanup plan in staging logs.
 
 ## Upload to GitHub
 
@@ -70,8 +108,8 @@ Commit the pinned requirement to the Odoo 19 branch in Odoo.sh's upgrade
 "update on commit" workflow. The dependency installation and subsequent Python
 startup register the migration before Odoo loads its module graph. No addon
 needs to import this library and no staging-shell command is required for the
-intended workflow. The root requirements commit must point to version 0.3.0 or
-later to include cleanup; the original 0.1.0 commit did not include startup registration.
+intended workflow. The root requirements commit must point to version 0.4.0 or
+later to include Avant job preservation; the original 0.1.0 commit did not include startup registration.
 
 Execution order:
 
@@ -83,8 +121,8 @@ Execution order:
    are retained and repeated registration does not duplicate paths.
 4. Odoo 19 reads that environment setting during configuration parsing.
 5. When Odoo.sh requests module updates, Odoo executes the entry point before
-   loading `base`: commission renames first, then retired-addon cleanup (including
-   `am_update`), then JSONB conversions for modules still installed.
+   loading `base`: commission renames, Avant job transfer, retired-addon cleanup
+   (including `am_update`), then JSONB conversions for modules still installed.
 6. The normal addon upgrade proceeds. Later duplicate calls safely skip work
    that is already complete.
 
@@ -115,6 +153,7 @@ addons load**:
 ```text
 extra upgrade scripts: [.../broditech_odoo_migrations/pre_upgrade.py]
 Running Broditech Odoo 19 migrations for installed modules
+Transferred ... Avant queue jobs to am.sync.job (...)
 Non-standard addon cleanup plan (...)
 Cleanup successfully uninstalled ... non-standard addons
 Broditech Odoo 19 pre-upgrade migrations completed
@@ -158,7 +197,7 @@ odoo -d DATABASE --pre-upgrade-scripts="$PRE_UPGRADE_SCRIPT" \
 ```sh
 PYTHONPATH=src python3 -m unittest discover -s tests -v
 python3 -m pip wheel --no-deps --no-build-isolation . -w dist
-python3 tools/verify_wheel.py dist/broditech_odoo_migrations-0.3.0-py3-none-any.whl
+python3 tools/verify_wheel.py dist/broditech_odoo_migrations-0.4.0-py3-none-any.whl
 ```
 
 Tests cover conversion guards, installed-module filtering, commission merge
