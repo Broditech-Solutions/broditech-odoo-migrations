@@ -2,3 +2,4 @@ include README.md COPYING requirements.example.txt setup.py
 recursive-include src *.py
 recursive-include tests *.py
 recursive-include tools *.py
+recursive-include docs *.md

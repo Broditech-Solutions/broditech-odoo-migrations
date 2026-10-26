@@ -50,6 +50,48 @@ Studio views referring to fields from retired addons may need adjustment.
 If a previous cleanup removed Studio customizations, use a fresh upgraded
 restore; this exception cannot recover deleted customizations.
 
+## Studio view compatibility (0.5.0 onwards)
+
+The entry point repairs Studio view architectures **before** addon cleanup,
+including every stored language. The audit of the supplied 17/19 dumps covers
+116 Studio-owned views and 932 translated architectures. See
+[the complete inventory and validation limits](docs/studio-view-audit.md).
+
+The repairs update renamed fields and XPath anchors, preserve custom fields
+when an anchor belonged to a retired addon, and migrate copied invoice/sales
+report templates to the Odoo 19 tax API. Report layouts stay in Studio; copied
+tax helpers delegate to the maintained standard templates. The Studio overlay
+on the standard company-currency helper only added a blank paragraph over the
+old implementation; it becomes a no-op to retain correct tax calculations.
+
+The 14 audited views enabled in 17 but disabled by the core upgrade are
+reactivated on the first migration. Previously user-disabled views and report
+backups remain inactive. Overlays on retired planner/payment-list parents are
+archived and detached before uninstall rather than forced onto unrelated
+standard screens. Uninstall can still remove views on a retired model itself.
+
+Before changing a view, the full original row (including every architecture
+translation) is saved in `broditech_studio_view_backup`. That table has no model
+foreign keys and survives uninstall. The first snapshot is never overwritten.
+Reruns do not duplicate backups or re-enable a view subsequently disabled by
+the user. Inspect changed records with:
+
+```sql
+SELECT view_id, xmlid, reason
+FROM broditech_studio_view_backup ORDER BY view_id;
+```
+
+The complex CRM form is checked against its audited 104-operation sequence
+before rewriting positional XPath expressions to semantic targets. Unexpected
+edits stop migration for review rather than moving the wrong fields. Other
+nonempty specifications on unhandled retired anchors also stop cleanup. No
+view expressions or sync actions are executed by the migration itself.
+
+Local validation is static XML/XPath replay and SQLite metadata simulation,
+not a full Odoo/PostgreSQL registry load or PDF rendering test. Verify contacts,
+CRM, projects, accounting, sales, purchases, appraisals, and all custom reports
+on a fresh Odoo.sh staging restore before production.
+
 ## Avant sync job transfer (0.4.0 onwards)
 
 Before cleanup, the entry point transfers all jobs for
@@ -123,8 +165,8 @@ Commit the pinned requirement to the Odoo 19 branch in Odoo.sh's upgrade
 "update on commit" workflow. The dependency installation and subsequent Python
 startup register the migration before Odoo loads its module graph. No addon
 needs to import this library and no staging-shell command is required for the
-intended workflow. The root requirements commit must point to version 0.4.1 or
-later to include Studio preservation; the original 0.1.0 commit did not include startup registration.
+intended workflow. The root requirements commit must point to version 0.5.0 or
+later to include the Studio view repairs; the original 0.1.0 commit did not include startup registration.
 
 Execution order:
 
@@ -136,8 +178,9 @@ Execution order:
    are retained and repeated registration does not duplicate paths.
 4. Odoo 19 reads that environment setting during configuration parsing.
 5. When Odoo.sh requests module updates, Odoo executes the entry point before
-   loading `base`: commission renames, Avant job transfer, retired-addon cleanup
-   (including `am_update`), then JSONB conversions for modules still installed.
+   loading `base`: commission renames, Avant job transfer, Studio view repairs,
+   retired-addon cleanup (including `am_update`), then JSONB conversions for
+   modules still installed.
 6. The normal addon upgrade proceeds. Later duplicate calls safely skip work
    that is already complete.
 
@@ -169,6 +212,7 @@ addons load**:
 extra upgrade scripts: [.../broditech_odoo_migrations/pre_upgrade.py]
 Running Broditech Odoo 19 migrations for installed modules
 Transferred ... Avant queue jobs to am.sync.job (...)
+Studio view migration: ... inspected, ... changed, ... archived
 Non-standard addon cleanup plan (...)
 Cleanup successfully uninstalled ... non-standard addons
 Broditech Odoo 19 pre-upgrade migrations completed
@@ -210,9 +254,10 @@ odoo -d DATABASE --pre-upgrade-scripts="$PRE_UPGRADE_SCRIPT" \
 ## Local verification
 
 ```sh
+python3 -m pip install lxml
 PYTHONPATH=src python3 -m unittest discover -s tests -v
 python3 -m pip wheel --no-deps --no-build-isolation . -w dist
-python3 tools/verify_wheel.py dist/broditech_odoo_migrations-0.4.1-py3-none-any.whl
+python3 tools/verify_wheel.py dist/broditech_odoo_migrations-0.5.0-py3-none-any.whl
 ```
 
 Tests cover conversion guards, installed-module filtering, commission merge

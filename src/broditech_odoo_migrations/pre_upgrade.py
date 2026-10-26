@@ -1,5 +1,5 @@
 # License AGPL-3.0-or-later
-"""Preserve Avant jobs, uninstall retired addons, and migrate retained fields."""
+"""Preserve jobs and Studio views before removing retired addons."""
 
 import logging
 
@@ -10,7 +10,7 @@ _logger = logging.getLogger(__name__)
 def migrate(cr, version):
     from odoo.release import version_info
 
-    from broditech_odoo_migrations import avant_jobs, cleanup, commission, mod347, queue_job
+    from broditech_odoo_migrations import avant_jobs, cleanup, commission, mod347, queue_job, studio_views
 
     if version_info[0] != 19:
         raise RuntimeError("These project migrations must run under Odoo 19")
@@ -19,6 +19,7 @@ def migrate(cr, version):
     # Module operations must precede the loading of base and the addon graph.
     commission.migrate(cr, version)
     avant_jobs.migrate(cr, version)
+    studio_views.migrate(cr, version)
     cleanup.migrate(cr, version)
     # Cleanup may have removed the modules that previously needed conversion.
     cr.execute(
