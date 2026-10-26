@@ -15,7 +15,7 @@ from odoo.upgrade.util import helpers
 
 
 _logger = logging.getLogger(__name__)
-KEEP_MODULES = {"am_integration", "am_project", "disable_vat_check"}
+KEEP_MODULES = {"am_integration", "am_project", "disable_vat_check", "studio_customization"}
 ACTIVE_STATES = ("installed", "to upgrade", "to install", "to remove")
 
 
