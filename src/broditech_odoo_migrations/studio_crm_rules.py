@@ -109,4 +109,11 @@ CRM_XPATHS = (
     ('/form[1]/sheet[1]/group[1]/group[4]/field[5]', "//field[@name='date_deadline']"),
     ('/form[1]/sheet[1]/group[1]/group[4]/field[5]', "//field[@name='date_deadline']"),
     ('/form[1]/sheet[1]/group[1]/group[4]/field[5]', "//field[@name='date_deadline']"),
+    # The 2026-10-30 CRM Studio revision added a carpentry-project flag and
+    # reordered it relative to the expected invoicing deadline. Re-anchor the
+    # move to stable fields instead of relying on the changed positional paths.
+    ('/form[1]/sheet[1]/group[1]/group[4]/field[5]', "//field[@name='date_deadline']"),
+    ('/form[1]/sheet[1]/group[1]/group[4]/field[7]', "//field[@name='date_deadline']"),
+    ('/form[1]/sheet[1]/group[1]/group[4]/field[6]', "//field[@name='x_studio_proyecto_carpintera']"),
+    ("//div[hasclass('o_lead_opportunity_form_inline_fields')]", "//div[hasclass('o_lead_opportunity_form_inline_fields')]")
 )

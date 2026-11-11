@@ -56,6 +56,13 @@ class XMLTests(unittest.TestCase):
         self.assertIn(f"expected {CRM_XPATHS[0][0]!r}", str(error.exception))
         self.assertIn('Actual sequence:', str(error.exception))
 
+    def test_crm_dump_revision_reanchors_carpentry_project_operations(self):
+        root=E.Element('data')
+        for old,new in CRM_XPATHS:E.SubElement(root,'xpath',expr=old)
+        adapted=studio.adapt_arch(E.tostring(root,encoding='unicode'),'crm.lead',studio.CRM_FORM)
+        actual=[node.get('expr') for node in E.fromstring(adapted.encode()).iter('xpath')]
+        self.assertEqual(actual[-4:], [new for old,new in CRM_XPATHS[-4:]])
+
     def test_report_tax_helpers_delegate_to_current_api_and_keep_template_keys(self):
         for key,target,currency in (
             ('account.document_tax_totals_copy_1','account.document_tax_totals_template','o.currency_id'),
