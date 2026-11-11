@@ -98,8 +98,30 @@ def adapt_arch(xml, model, name, retired=RETIRED, relations=RELATIONS):
     if name == CRM_FORM:
         specs = list(root.iter('xpath'))
         if any((s.get('expr') or '').startswith(('/form[1]', '//form[1]')) for s in specs):
-            if [s.get('expr') for s in specs] != [old for old, new in CRM_XPATHS]:
-                raise RuntimeError('Studio CRM form differs from audited XPath sequence; review before migrating')
+            actual = [s.get('expr') for s in specs]
+            expected = [old for old, new in CRM_XPATHS]
+            if actual != expected:
+                first_difference = next(
+                    (index for index, pair in enumerate(zip(actual, expected), 1)
+                     if pair[0] != pair[1]),
+                    min(len(actual), len(expected)) + 1,
+                )
+                actual_at_difference = (
+                    repr(actual[first_difference - 1])
+                    if first_difference <= len(actual) else '<missing>'
+                )
+                expected_at_difference = (
+                    repr(expected[first_difference - 1])
+                    if first_difference <= len(expected) else '<none>'
+                )
+                raise RuntimeError(
+                    'Studio CRM form differs from audited XPath sequence; review before migrating. '
+                    f'View XML ID: studio_customization.{name}; '
+                    f'first difference at XPath #{first_difference}: '
+                    f'found {actual_at_difference}, expected {expected_at_difference}. '
+                    f'Found {len(actual)} XPath operations, expected {len(expected)}. '
+                    f'Actual sequence: {actual!r}'
+                )
             for spec, (old, new) in zip(specs, CRM_XPATHS):
                 spec.set('expr', new)
     if model == 'res.partner':
@@ -268,7 +290,19 @@ def migrate(cr, version):
             ancestor = parents.get(ancestor)
         if not active and name not in RESTORE_ACTIVE and not orphan:
             continue
-        migrated = arches if orphan else {lang: adapt_arch(xml, model, name, retired, relations) for lang, xml in arches.items()}
+        if orphan:
+            migrated = arches
+        else:
+            migrated = {}
+            for lang, xml in arches.items():
+                try:
+                    migrated[lang] = adapt_arch(xml, model, name, retired, relations)
+                except RuntimeError as exc:
+                    raise RuntimeError(
+                        f'Failed to migrate Studio view {"studio_customization." + name} '
+                        f'(database view id={vid}, model={model!r}, type={kind!r}, '
+                        f'active={active}, language={lang!r}): {exc}'
+                    ) from exc
         new_active = False if orphan else (active or (vid not in previously_migrated and name in RESTORE_ACTIVE))
         reason = 'retired parent addon' if orphan else 'Odoo 19 Studio compatibility'
         if migrated == arches and new_active == active and not orphan:

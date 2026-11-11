@@ -50,8 +50,11 @@ class XMLTests(unittest.TestCase):
         self.assertNotIn('/form[1]',adapted)
         self.assertEqual(studio.adapt_arch(adapted,'crm.lead',studio.CRM_FORM),adapted)
         root[0].set('expr', '//form[1]/new_user_edit')
-        with self.assertRaisesRegex(RuntimeError,'differs from audited'):
+        with self.assertRaisesRegex(RuntimeError,'first difference at XPath #1') as error:
             studio.adapt_arch(E.tostring(root,encoding='unicode'),'crm.lead',studio.CRM_FORM)
+        self.assertIn("found \"'//form[1]/new_user_edit'\"", str(error.exception))
+        self.assertIn(f"expected {CRM_XPATHS[0][0]!r}", str(error.exception))
+        self.assertIn('Actual sequence:', str(error.exception))
 
     def test_report_tax_helpers_delegate_to_current_api_and_keep_template_keys(self):
         for key,target,currency in (
